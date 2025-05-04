@@ -4,16 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b90598d2-5bf0-4101-9d90-3b16d00776db" name="Changes" comment="gui - implemented">
-      <change afterPath="$PROJECT_DIR$/.idea/VideoStabilization.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/VideoWidget.py" beforeDir="false" afterPath="$PROJECT_DIR$/VideoWidget.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/MainWindow.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/MainWindow.py" afterDir="false" />
+    <list default="true" id="b90598d2-5bf0-4101-9d90-3b16d00776db" name="Changes" comment="test etst">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/StabilizationWorker.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/StabilizationWorker.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/VideoDisplayWidget.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/VideoDisplayWidget.py" afterDir="false" />
     </list>
@@ -119,7 +111,7 @@
       <workItem from="1746215266864" duration="3461000" />
       <workItem from="1746263348900" duration="18112000" />
       <workItem from="1746360176335" duration="2477000" />
-      <workItem from="1746373451114" duration="15314000" />
+      <workItem from="1746373451114" duration="15671000" />
     </task>
     <task id="LOCAL-00001" summary="first comit">
       <option name="closed" value="true" />
@@ -145,7 +137,15 @@
       <option name="project" value="LOCAL" />
       <updated>1746375070859</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="test etst">
+      <option name="closed" value="true" />
+      <created>1746398186985</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1746398186985</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -166,14 +166,15 @@
     <MESSAGE value="first comit" />
     <MESSAGE value="gui - test" />
     <MESSAGE value="gui - implemented" />
-    <option name="LAST_COMMIT_MESSAGE" value="gui - implemented" />
+    <MESSAGE value="test etst" />
+    <option name="LAST_COMMIT_MESSAGE" value="test etst" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/ui/StabilizationWorker.py</url>
-          <line>78</line>
+          <line>140</line>
           <option name="timeStamp" value="1" />
         </line-breakpoint>
       </breakpoints>

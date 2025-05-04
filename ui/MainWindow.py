@@ -1,98 +1,134 @@
-from PyQt5.QtCore import Qt, QThread, QThreadPool
-from PyQt5.QtWidgets import QVBoxLayout, QFrame, QHBoxLayout, QSlider, QPushButton, QMainWindow, QWidget, QFileDialog, \
-    QProgressBar, QLabel
 
+import sys
+from PyQt5.QtCore import Qt, QThread, QThreadPool, pyqtSlot
+from PyQt5.QtWidgets import (QVBoxLayout, QFrame, QHBoxLayout, QSlider,
+                             QPushButton, QMainWindow, QWidget, QFileDialog,
+                             QProgressBar, QLabel, QApplication)  # Added QApplication for running if needed
+import matplotlib.pyplot as plt  # Added for optional plotting
+
+# Assuming Utils.py and VideoWidget.py are in the same directory or accessible
 import Utils
 from VideoWidget import VideoWidget
+# Assuming StabilizationWorker.py is structured correctly and accessible
 from ui.StabilizationWorker import StabilizationWorker
 import cv2 as cv
+import numpy as np
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Video Stabilizer")
-        self.setMinimumSize(1080, 900)  # Increased height to accommodate 800x800 video
-        self.setGeometry(0, 0, 1600, 1000)
+        # Adjusted minimum size slightly for better layout with progress/error
+        self.setMinimumSize(1080, 950)
+        self.setGeometry(100, 100, 1600, 1000)  # Example position/size
 
-        # Flag to prevent recursive updates
-        self.updating_ui = False
-        self.dx = None
-        self.dy = None
-        self.dr = None
-        self.stabilization_thread = None
+        # --- Internal State ---
+        self.updating_ui = False  # Flag to prevent recursive UI updates
+        self.frames_before = None
+        self.frames_after = None
+        self.worker = None  # Reference to the stabilization worker
+        self.thread_pool = QThreadPool()  # Thread pool for the worker
+
+        # Stabilization results data (optional, for debugging/plotting)
+        self.dx, self.dy, self.dr = None, None, None
+        self.smoothed_dx, self.smoothed_dy, self.smoothed_dr = None, None, None
+        self.correction_transforms = None
+
+        # --- UI Elements ---
 
         # Buttons
         self.load_button = QPushButton("Load Video")
-        self.save_button = QPushButton("Save")
+        self.save_button = QPushButton("Save Stabilized")
         self.stabilize_button = QPushButton("Stabilize")
         self.play_button = QPushButton("Play")
         self.stop_button = QPushButton("Stop")
+
+        # Initial button states
+        self.save_button.setEnabled(False)
+        self.stabilize_button.setEnabled(False)
+        self.play_button.setEnabled(False)
+        self.stop_button.setEnabled(False)
         self.play_button.setVisible(False)
         self.stop_button.setVisible(False)
 
-        # Video widget placeholder (will be created after loading video)
-        self.video_widget = None
-
-        # Slider for video navigation
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setMinimum(0)
-        self.slider.setMaximum(100)
-        self.slider.setVisible(False)  # Hide slider until video is loaded
-
-        # Create a main layout
-        self.main_layout = QVBoxLayout()
-
-        # Create button layout
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.load_button)
-        button_layout.addWidget(self.save_button)
-        button_layout.addWidget(self.stabilize_button)
-        button_layout.addWidget(self.play_button)
-        button_layout.addWidget(self.stop_button)
-
-        # Add button layout to main layout
-        self.main_layout.addLayout(button_layout)
-
-        # Create a container for the video with a fixed size
-        # self.video_container = QFrame()
-        # self.video_container.setFrameStyle(QFrame.StyledPanel)
-        # self.video_container.setFixedSize(800, 800)
-        video_layout = QHBoxLayout()
+        # Video Widgets and Labels
+        self.before_video = VideoWidget(None)
+        self.after_video = VideoWidget(None)
         self.before_label = QLabel("Original Video")
         self.before_label.setAlignment(Qt.AlignCenter)
         self.after_label = QLabel("Stabilized Video")
         self.after_label.setAlignment(Qt.AlignCenter)
+
+        # Slider for video navigation
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setMinimum(0)
+        self.slider.setMaximum(0)  # Start at 0 max
+        self.slider.setEnabled(False)
+        self.slider.setVisible(False)
+
+        # Progress Bar and Label
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 100)  # Explicitly set range
+        self.progress_label = QLabel("")
+        self.progress_label.setVisible(False)
+
+        # Error Label
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color: red; padding: 5px;")  # Add some padding
+        self.error_label.setAlignment(Qt.AlignCenter)
+        self.error_label.setVisible(False)
+
+        # --- Layouts ---
+
+        # Main vertical layout
+        self.main_layout = QVBoxLayout()
+
+        # Button layout (horizontal)
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.load_button)
+        button_layout.addWidget(self.save_button)
+        button_layout.addWidget(self.stabilize_button)
+        button_layout.addStretch()  # Push play/stop to the right
+        button_layout.addWidget(self.play_button)
+        button_layout.addWidget(self.stop_button)
+        self.main_layout.addLayout(button_layout)
+
+        # Error label layout (add early for visibility)
+        self.main_layout.addWidget(self.error_label)
+
+        # Video layout (horizontal for side-by-side)
+        video_layout = QHBoxLayout()
+
+        # Container for 'Before' video and label
         before_container = QVBoxLayout()
-        after_container = QVBoxLayout()
-        self.before_video = VideoWidget(None)
-        self.after_video = VideoWidget(None)
-        # Create a layout for positioning the video widget within the container
         before_container.addWidget(self.before_label)
         before_container.addWidget(self.before_video)
+        video_layout.addLayout(before_container)
+
+        # Container for 'After' video and label
+        after_container = QVBoxLayout()
         after_container.addWidget(self.after_label)
         after_container.addWidget(self.after_video)
-
-        video_layout.addLayout(before_container)
         video_layout.addLayout(after_container)
 
         self.main_layout.addLayout(video_layout)
 
-        # Add video container to main layout, centered horizontally
-        # video_container_layout = QHBoxLayout()
-        # video_container_layout.addStretch()
-        # video_container_layout.addWidget(self.video_container)
-        # video_container_layout.addStretch()
-        # self.main_layout.addLayout(video_container_layout)
-
-        # Add slider to main layout with some horizontal margins
+        # Slider layout (horizontal with spacing)
         slider_layout = QHBoxLayout()
         slider_layout.addSpacing(50)
         slider_layout.addWidget(self.slider)
         slider_layout.addSpacing(50)
         self.main_layout.addLayout(slider_layout)
 
-        # Add some stretch at the bottom
+        # Progress layout (horizontal)
+        progress_layout = QHBoxLayout()
+        progress_layout.addWidget(self.progress_label, 1)  # Label takes some space
+        progress_layout.addWidget(self.progress_bar, 4)  # Bar takes more space
+        self.main_layout.addLayout(progress_layout)
+
+        # Add stretch at the bottom
         self.main_layout.addStretch()
 
         # Set up the central widget
@@ -100,222 +136,375 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(self.main_layout)
         self.setCentralWidget(central_widget)
 
-        #progress bar for stabilization process
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.main_layout.addWidget(self.progress_bar)
-
-
-        # Button signals
+        # --- Connections ---
         self.load_button.clicked.connect(self.load_video)
         self.save_button.clicked.connect(self.save_video)
         self.stabilize_button.clicked.connect(self.stabilize_video)
         self.play_button.clicked.connect(self.play_video)
         self.stop_button.clicked.connect(self.stop_video)
-        self.before_video.frameChanged.connect(self.update_slider)
-        self.slider.valueChanged.connect(self.slider_moved)
 
-        # Initialize variables
-        self.frames_before = None
-        self.frames_after = None
+        # Connect frame changes FROM video widget TO slider update
+        self.before_video.frameChanged.connect(self.update_slider_from_video)
+        # Connect slider value changes TO video frame update
+        self.slider.valueChanged.connect(self.update_video_from_slider)
 
-        # Apply styles
+        # --- Apply Styles ---
         self.apply_styles()
 
     def apply_styles(self):
-        button_style = ("background-color:#C67D58;"
-                        "color:#F5D6B1;"
-                        "padding: 6px 12px;"
-                        "border-radius: 4px")
+        """Applies basic CSS styling to widgets."""
+        button_style = ("QPushButton {"
+                        "  background-color:#C67D58;"
+                        "  color:#F5D6B1;"
+                        "  padding: 6px 12px;"
+                        "  border-radius: 4px;"
+                        "  border: 1px solid #a56846;"  # Added subtle border
+                        "}"
+                        "QPushButton:hover { background-color: #d78e6a; }"  # Hover effect
+                        "QPushButton:pressed { background-color: #b56d4e; }"  # Pressed effect
+                        "QPushButton:disabled { background-color: #cccccc; color: #666666; border: 1px solid #aaaaaa; }"
+                        # Disabled style
+                        )
 
         self.load_button.setStyleSheet(button_style)
         self.save_button.setStyleSheet(button_style)
         self.stabilize_button.setStyleSheet(button_style)
         self.play_button.setStyleSheet(button_style)
         self.stop_button.setStyleSheet(button_style)
-        self.setStyleSheet("background-color:#FFF8DC;")
-        # self.video_container.setStyleSheet("background-color:#000000;")
 
-    def load_frames(self, before_list, after_list):
-        if not before_list or not after_list:
-            print("Error: Frame lists are empty or None.")
-            return
-        self.frames_before = before_list
-        self.frames_after = after_list
+        # Main background
+        self.setStyleSheet("QMainWindow { background-color:#FFF8DC; }")
 
+        # Labels style
+        label_style = "QLabel { color: #5f4c3a; font-weight: bold; }"
+        self.before_label.setStyleSheet(label_style)
+        self.after_label.setStyleSheet(label_style)
+        self.progress_label.setStyleSheet("QLabel { color: #333333; }")  # Progress text color
+        # Error label style is set directly where it's created
 
-    def stabilize_video(self):
-        if not self.frames_before:
-            print("No video was loaded!")
-            return
-
-        if len(self.frames_before) <= 1:
-            print("Insufficient frames!")
-            return
-
-        #activating the progress bar
-        self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(True)
-
-        #preparing the thread
-        self.worker = StabilizationWorker(self.frames_before)
-        self.thread_pool = QThreadPool()
-
-        #connecting signals
-        self.worker.stabilization_signals.progress.connect(self.update_progress_bar)
-        self.worker.stabilization_signals.result.connect(self.stabilization_completed)
-        self.worker.stabilization_signals.finished.connect(self.stabilization_completed)
-        self.thread_pool.start(self.worker)
-
-    def stabilization_completed(self, stabilized_frames, transforms, dx, dy, dr, smoothed_dx, smoothed_dy, smoothed_dr):
-        print("Stabilization has finished")
-
-        # Store the stabilized frames
-        self.frames_after = stabilized_frames
-
-        # Update the after video widget
-        self.after_video.set_frames(self.frames_after)
-
-        # Enable the save button
-        self.save_button.setEnabled(True)
-
-        # Hide the progress bar
-        self.progress_bar.setVisible(False)
-    def update_progress_bar(self, value):
-        self.progress_bar.setVisible(value)
+    # --- Action Methods ---
 
     def load_video(self):
-        """
-        Loads the video and enables the stop start buttons
-        displays a slider
-
-        :return:
-        """
+        """Opens a file dialog to load a video."""
         file_dialog = QFileDialog(self)
-        file_dialog.setWindowTitle("Open File")
+        file_dialog.setWindowTitle("Open Video File")
+        # Common video formats filter
+        file_dialog.setNameFilter("Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         file_dialog.setViewMode(QFileDialog.ViewMode.Detail)
 
         if file_dialog.exec():
-            selected_files = file_dialog.selectedFiles()[0]
+            selected_file = file_dialog.selectedFiles()[0]
             try:
-                self.frames_before = Utils.load_video(selected_files)
-                if not self.frames_before:
-                    raise ValueError("No frames loaded from the video.")
+                self.hide_error()  # Hide previous errors on new load attempt
+                print(f"Loading video from: {selected_file}")
+                # Load frames using the utility function
+                loaded_frames = Utils.load_video(selected_file)
 
-                #enabling the slider
-                # self.slider.setMaximum(len(self.frames_before) - 1)
-                # self.slider.setValue(0)
-                # self.slider.setVisible(True)  # Show slider now that we have a video
+                if not loaded_frames:
+                    raise ValueError("No frames could be loaded from the selected file.")
+                if len(loaded_frames) <= 1:
+                    raise ValueError("Video must contain at least two frames.")
 
-                #update before video widget
+                # --- Successfully loaded ---
+                self.frames_before = loaded_frames
+                print(f"Successfully loaded {len(self.frames_before)} frames.")
+
+                # Reset stabilization results
+                self.frames_after = None
+                self.dx, self.dy, self.dr = None, None, None  # Clear plot data too
+                self.smoothed_dx, self.smoothed_dy, self.smoothed_dr = None, None, None
+
+                # Update 'Before' video widget
                 self.before_video.set_frames(self.frames_before)
+                # Reset 'After' video widget
+                self.after_video.set_frames(None)  # Clear the after video panel
 
-                #update slider
+                # Update slider
                 self.slider.setMaximum(len(self.frames_before) - 1)
                 self.slider.setValue(0)
                 self.slider.setEnabled(True)
                 self.slider.setVisible(True)
 
-                #enable stabilize button
+                # Update button states
                 self.stabilize_button.setEnabled(True)
+                self.save_button.setEnabled(False)  # Can't save until stabilized
                 self.play_button.setEnabled(True)
                 self.stop_button.setEnabled(True)
-
                 self.play_button.setVisible(True)
                 self.stop_button.setVisible(True)
 
-                #reset after video
-
-                self.frames_after = None
-                self.after_video.set_frames(None)
-                self.save_button.setEnabled(False)
-
             except Exception as e:
-                print(f"Error loading video: {e}")
-                return
+                error_msg = f"Error loading video: {e}"
+                print(error_msg)
+                self.show_error(error_msg)
+                # Reset UI to safe state on load failure
+                self.frames_before = None
+                self.frames_after = None
+                self.before_video.set_frames(None)
+                self.after_video.set_frames(None)
+                self.stabilize_button.setEnabled(False)
+                self.save_button.setEnabled(False)
+                self.play_button.setEnabled(False)
+                self.stop_button.setEnabled(False)
+                self.play_button.setVisible(False)
+                self.stop_button.setVisible(False)
+                self.slider.setMaximum(0)
+                self.slider.setEnabled(False)
+                self.slider.setVisible(False)
+                return  # Stop further execution in load_video
+
+    def stabilize_video(self):
+        """Starts the video stabilization process in a worker thread."""
+        if not self.frames_before:
+            self.show_error("Load a video first.")
+            return
+
+        if self.worker is not None:
+            self.show_error("Stabilization is already in progress.")
+            return
+
+        # Reset previous results and UI state for stabilization
+        self.frames_after = None
+        self.after_video.set_frames(None)
+        self.save_button.setEnabled(False)
+        self.stabilize_button.setEnabled(False)  # Disable during processing
+        self.load_button.setEnabled(False)  # Disable during processing
+        self.play_button.setEnabled(False)  # Disable playback during processing
+        self.stop_button.setEnabled(False)
+        self.hide_error()
+
+        # Show and reset progress bar/label
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Starting stabilization...")
+        self.progress_bar.setVisible(True)
+        self.progress_label.setVisible(True)
+
+        # --- Prepare and start worker ---
+        # TODO: Potentially get sigma from a UI element later
+        sigma_value = 50  # Example smoothing factor
+        self.worker = StabilizationWorker(self.frames_before, sigma=sigma_value)
+
+        # Connect signals from worker to slots in this MainWindow
+        self.worker.stabilization_signals.progress.connect(self.update_progress)
+        self.worker.stabilization_signals.result.connect(self.stabilization_completed)
+        self.worker.stabilization_signals.finished.connect(self.stabilization_finished)
+        self.worker.stabilization_signals.error.connect(self.stabilization_error)
+
+        print("Starting stabilization worker thread...")
+        # Start the worker in the global thread pool
+        self.thread_pool.start(self.worker)
 
     def save_video(self):
-        if self.frames_after is None:
-            print("No video was processed!")
+        """Saves the stabilized video frames to a file."""
+        if not self.frames_after:
+            self.show_error("No stabilized video to save. Stabilize first.")
             return
 
         file_dialog = QFileDialog(self)
-        file_dialog.setWindowTitle("Save File")
+        file_dialog.setWindowTitle("Save Stabilized Video")
         file_dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        # Default to mp4, allow others
+        file_dialog.setNameFilter("MP4 Video (*.mp4);;AVI Video (*.avi);;All Files (*)")
+        file_dialog.setDefaultSuffix("mp4")
         file_dialog.setViewMode(QFileDialog.ViewMode.Detail)
 
         if file_dialog.exec():
             selected_file = file_dialog.selectedFiles()[0]
-            height, width, _ = self.frames_after[0].shape
-            out = cv.VideoWriter(selected_file, cv.VideoWriter_fourcc(*'mp4v'), 30, (width, height))
-            for frame in self.frames_after:
-                out.write(frame)
-            out.release()
-            print(f"Video saved to {selected_file}")
+            if not selected_file: return  # User cancelled
+
+            print(f"Saving stabilized video to: {selected_file}")
+            try:
+                height, width, _ = self.frames_after[0].shape
+                # Use mp4v codec for MP4 files, check compatibility if saving other formats
+                fourcc = cv.VideoWriter_fourcc(*'mp4v')
+                # TODO: Get FPS from original video if possible, default to 30
+                fps = 30
+                out = cv.VideoWriter(selected_file, fourcc, fps, (width, height))
+
+                if not out.isOpened():
+                    raise IOError(f"Could not open video writer for '{selected_file}'")
+
+                for i, frame in enumerate(self.frames_after):
+                    # Ensure frame is BGR format for VideoWriter
+                    if frame.ndim == 3 and frame.shape[2] == 3:
+                        out.write(frame)
+                    else:
+                        print(f"Warning: Skipping invalid frame {i} during save.")
+
+                out.release()
+                print(f"Video saved successfully to {selected_file}")
+                # Optionally show a success message in the status bar or a dialog
+
+            except Exception as e:
+                error_msg = f"Error saving video: {e}"
+                print(error_msg)
+                self.show_error(error_msg)
 
     def play_video(self):
-        if self.frames_before is None:
-            print("No video attached")
+        """Starts playback in both video widgets."""
+        if not self.frames_before:
+            print("No video loaded to play.")
             return
 
-
+        # Start timer for 'Before' video
         self.before_video.start_timer()
+        # Start timer for 'After' video only if it has frames
         if self.frames_after:
             self.after_video.start_timer()
-
 
     def stop_video(self):
+        """Stops playback in both video widgets."""
         self.before_video.stop_timer()
-        self.after_video.stop_timer()
+        self.after_video.stop_timer()  # Safe to call even if no frames/timer running
 
+    # --- Signal Handling Slots ---
 
-    def update_slider(self, index):
-        """Update slider position without triggering the valueChanged signal"""
-        if self.updating_ui:
+    @pyqtSlot(list, list, list, list, list, list, list, list)
+    def stabilization_completed(self, stabilized_frames, correction_transforms,
+                                dx, dy, dr, smoothed_dx, smoothed_dy, smoothed_dr):
+        """Handles the 'result' signal from the worker."""
+        print("Stabilization data received from worker.")
+
+        if not stabilized_frames:
+            print("Stabilization completed but returned no frames.")
+            self.stabilization_error("Processing completed but no frames were generated.")
             return
 
-        self.updating_ui = True
-        self.slider.setValue(index)
+        # Store the results
+        self.frames_after = stabilized_frames
+        self.correction_transforms = correction_transforms
+        self.dx, self.dy, self.dr = dx, dy, dr
+        self.smoothed_dx, self.smoothed_dy, self.smoothed_dr = smoothed_dx, smoothed_dy, smoothed_dr
 
-        if self.frames_after:
-            self.after_video_change_frame(index)
+        # Update the 'After' video widget
+        self.after_video.set_frames(self.frames_after)
+        self.save_button.setEnabled(True)  # Enable save now
+        print(f"Loaded {len(self.frames_after)} stabilized frames into 'After' widget.")
 
-        self.updating_ui = False
+        # Optional: Automatically plot motion data after completion
+        # self.plot_motion() 
 
-    def slider_moved(self):
-        """Handle slider movement and update video frame"""
-        if self.updating_ui:
-            return
+    @pyqtSlot()
+    def stabilization_finished(self):
+        """Handles the 'finished' signal from the worker."""
+        print("Stabilization worker thread has finished.")
+        # This runs *after* result or error signal is processed
+        self.progress_bar.setVisible(False)
+        self.progress_label.setVisible(False)
 
-        self.updating_ui = True
-        index = self.slider.value()
+        # Re-enable buttons that were disabled during processing
+        self.stabilize_button.setEnabled(True)
+        self.load_button.setEnabled(True)
+        if self.frames_before:  # Only enable playback if a video is loaded
+            self.play_button.setEnabled(True)
+            self.stop_button.setEnabled(True)
 
-        before_was_playing = False
-        after_was_playing = False
-        if self.before_video.timer.isActive():
-            before_was_playing = True
-            self.before_video.stop_timer()
+        self.worker = None  # Clear the worker reference
 
-        if self.after_video.timer.isActive():
-            after_was_playing = True
-            self.after_video.stop_timer()
+    @pyqtSlot(str)
+    def stabilization_error(self, error_message):
+        """Handles the 'error' signal from the worker."""
+        print(f"Stabilization Error Signal Received: {error_message}")
+        self.show_error(f"Stabilization Failed: {error_message}")
+        # Clean up UI state related to stabilization results
+        self.frames_after = None
+        self.after_video.set_frames(None)
+        self.save_button.setEnabled(False)
+        # Note: stabilization_finished will still run afterwards to re-enable buttons etc.
 
-        self.before_video.change_frame(index)
-        if self.frames_after:
-            self.after_video.change_frame(index)
+    @pyqtSlot(str, int)
+    def update_progress(self, message, value):
+        """Handles the 'progress' signal from the worker."""
+        self.progress_label.setText(message)
+        self.progress_bar.setValue(value)
 
-        if before_was_playing:
-            self.before_video.start_timer()
+    # --- UI Update Synchronization ---
 
-        if after_was_playing and self.frames_after:
-            self.after_video.start_timer()
+    @pyqtSlot(int)
+    def update_slider_from_video(self, index):
+        """Updates slider position when video frame changes (e.g., during playback)."""
+        if not self.updating_ui:  # Prevent loop if slider change triggered video change
+            self.updating_ui = True
+            self.slider.setValue(index)
 
-        self.updating_ui = False
+            # Also sync the 'After' video if it exists and isn't the source
+            if self.frames_after and self.sender() == self.before_video:
+                self.after_video.change_frame(index)  # Directly change frame without starting timer
 
+            self.updating_ui = False
 
+    @pyqtSlot(int)
+    def update_video_from_slider(self, index):
+        """Updates video frames when the slider is moved manually."""
+        if not self.updating_ui:  # Prevent loop if video change triggered slider change
+            self.updating_ui = True
 
-    def update_frame(self, index):
-        """Helper method to update frame display"""
-        if self.video_widget:
-            self.video_widget.change_frame(index)
+            # Stop playback temporarily if active
+            before_was_playing = self.before_video.timer.isActive()
+            after_was_playing = self.after_video.timer.isActive()
+            if before_was_playing: self.before_video.stop_timer()
+            if after_was_playing: self.after_video.stop_timer()
+
+            # Change frame in both widgets
+            if self.frames_before:
+                self.before_video.change_frame(index)
+            if self.frames_after:
+                self.after_video.change_frame(index)
+
+            # Resume playback if it was active
+            if before_was_playing: self.before_video.start_timer()
+            # Only resume 'after' if it exists AND was playing
+            if after_was_playing and self.frames_after: self.after_video.start_timer()
+
+            self.updating_ui = False
+
+    # --- Helper Methods ---
+
+    def show_error(self, message):
+        """Displays an error message in the UI."""
+        self.error_label.setText(message)
+        self.error_label.setVisible(True)
+
+    def hide_error(self):
+        """Hides the error message label."""
+        self.error_label.setText("")
+        self.error_label.setVisible(False)
+
+    def plot_motion(self):
+        """Optional: Plots the original vs smoothed motion paths."""
+        if self.dx and self.smoothed_dx:
+            plt.figure("X Motion")
+            plt.plot(self.dx, label='Original Cumulative dx')
+            plt.plot(self.smoothed_dx, label='Smoothed Cumulative dx')
+            plt.xlabel("Frame Index")
+            plt.ylabel("Offset (pixels)")
+            plt.title("X-Axis Motion")
+            plt.legend()
+            plt.grid(True)
+            plt.show(block=False)  # Use block=False so it doesn't halt the Qt app
+
+        if self.dy and self.smoothed_dy:
+            plt.figure("Y Motion")
+            plt.plot(self.dy, label='Original Cumulative dy')
+            plt.plot(self.smoothed_dy, label='Smoothed Cumulative dy')
+            plt.xlabel("Frame Index")
+            plt.ylabel("Offset (pixels)")
+            plt.title("Y-Axis Motion")
+            plt.legend()
+            plt.grid(True)
+            plt.show(block=False)
+
+        if self.dr and self.smoothed_dr:
+            plt.figure("Rotational Motion")
+            # Convert radians to degrees for easier interpretation
+            dr_deg = np.degrees(self.dr)
+            smoothed_dr_deg = np.degrees(self.smoothed_dr)
+            plt.plot(dr_deg, label='Original Cumulative Rotation (deg)')
+            plt.plot(smoothed_dr_deg, label='Smoothed Cumulative Rotation (deg)')
+            plt.xlabel("Frame Index")
+            plt.ylabel("Rotation (degrees)")
+            plt.title("Rotational Motion")
+            plt.legend()
+            plt.grid(True)
+            plt.show(block=False)
