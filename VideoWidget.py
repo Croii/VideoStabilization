@@ -65,33 +65,6 @@ class VideoWidget(QWidget):
         background[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_frame
 
         return background
-    # def resize_frame(self, frame):
-    #     """Resize frame to fit in 800x800 while maintaining aspect ratio"""
-    #     h, w = frame.shape[:2]
-    #     aspect_ratio = w / h
-    #
-    #     # Calculate new dimensions while maintaining aspect ratio
-    #     if aspect_ratio > 1:  # Width > Height
-    #         new_width = self.display_width
-    #         new_height = int(new_width / aspect_ratio)
-    #     else:  # Height > Width or square
-    #         new_height = self.display_height
-    #         new_width = int(new_height * aspect_ratio)
-    #
-    #     # Resize the frame
-    #     resized_frame = cv.resize(frame, (new_width, new_height), interpolation=cv.INTER_AREA)
-    #
-    #     # Create a black background of 800x800
-    #     background = np.zeros((self.display_height, self.display_width, 3), dtype=np.uint8)
-    #
-    #     # Calculate position to center the image
-    #     y_offset = (self.display_height - new_height) // 2
-    #     x_offset = (self.display_width - new_width) // 2
-    #
-    #     # Place the resized image on the background
-    #     background[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_frame
-    #
-    #     return background
 
     def update_frame(self):
         if not self.frames or self.current_index >= len(self.frames) - 1:
@@ -125,7 +98,6 @@ class VideoWidget(QWidget):
         if not self.frames or not (0 <= index < len(self.frames)):
             return
 
-
         self.current_index = index
         frame = self.frames[self.current_index].copy()
 
@@ -144,4 +116,3 @@ class VideoWidget(QWidget):
         )
 
         self.update()
-        # We don't emit the signal here - it will be emitted by the caller

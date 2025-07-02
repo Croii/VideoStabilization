@@ -1,23 +1,20 @@
-# StabilizationWorker.py
+
 from math import atan2
 
 import cv2 as cv
 import numpy as np
-import matplotlib.pyplot as plt
 from PyQt5.QtCore import QObject, pyqtSignal, QRunnable, pyqtSlot
 from scipy.ndimage import gaussian_filter1d
 
 
-# Keep decompose_cumulative function as it is
 def decompose_cumulative(transforms):
     dx = []
     dy = []
     dr = []  # rotation
 
-    # Initial frame has no transform relative to previous, add identity placeholder
-    # Or adjust loop ranges later. Let's assume transforms[i] is transform from frame i to i+1
 
-    # Extract dx, dy, dr from each INTER-FRAME transform
+
+    # Extract dx, dy, dr from
     for transform in transforms:
         if transform is None:  # Handle potential None transforms
             dx.append(0)
@@ -26,7 +23,6 @@ def decompose_cumulative(transforms):
             continue
         dx.append(transform[0, 2])
         dy.append(transform[1, 2])
-        # Robust atan2 calculation
         dr.append(atan2(transform[1, 0], transform[0, 0]))
 
     # Calculate CUMULATIVE transforms
@@ -39,15 +35,12 @@ def decompose_cumulative(transforms):
     cumulative_dy.insert(0, 0)
     cumulative_dr.insert(0, 0)
 
-    # Make sure lists have N elements if input 'transforms' had N-1 elements
-    # The stabilization loop will typically need N-1 correction transforms later.
-    # Let's return the cumulative lists which should have N elements (0 to N-1)
     return cumulative_dx, cumulative_dy, cumulative_dr
 
 
 class StabilizationSignals(QObject):
     finished = pyqtSignal()
-    error = pyqtSignal(str)  # Pass error message string
+    error = pyqtSignal(str)
 
     # Progress: current step (string), percentage (int)
     progress = pyqtSignal(str, int)
@@ -62,13 +55,13 @@ class StabilizationWorker(QRunnable):
     def __init__(self, frames, method="Gaussian", crop="Autocrop", sigma=50):  # Add sigma
         super().__init__()
         self.method = method
-        self.crop = crop  # Crop parameter is not used yet
+        self.crop = crop  
         self.sigma = sigma  # Smoothing factor
         self.frames = frames
         self.stabilization_signals = StabilizationSignals()
 
         # Results storage
-        self.inter_frame_transforms = None  # Raw transforms between frames
+        self.frame_transforms = None  # Raw transforms between frames
         self.optimal_correction_transforms = None  # Transforms to apply for stabilization
         self.dx, self.dy, self.dr = None, None, None  # Raw cumulative paths
         self.smoothed_dx, self.smoothed_dy, self.smoothed_dr = None, None, None  # Smoothed paths
@@ -86,16 +79,16 @@ class StabilizationWorker(QRunnable):
             print("Stabilization started")
             self.stabilization_signals.progress.emit("Calculating motion...", 10)
 
-            # --- 1. Get Inter-Frame Transforms ---
-            self.inter_frame_transforms = self.get_inter_frame_transforms()
-            if not self.inter_frame_transforms or len(self.inter_frame_transforms) != n_frames - 1:
-                raise ValueError("Failed to compute sufficient inter-frame transforms.")
-            print(f"Computed {len(self.inter_frame_transforms)} inter-frame transforms.")
+            # --- 1. Get Transforms ---
+            self.frame_transforms = self.get_frame_transforms()
+            if not self.frame_transforms or len(self.frame_transforms) != n_frames - 1:
+                raise ValueError("Failed to compute sufficient  transforms.")
+            print(f"Computed {len(self.frame_transforms)}  transforms.")
             self.stabilization_signals.progress.emit("Decomposing motion...", 40)
 
             # --- 2. Decompose into Cumulative Paths ---
             # decompose_cumulative should return lists of length n_frames
-            self.dx, self.dy, self.dr = decompose_cumulative(self.inter_frame_transforms)
+            self.dx, self.dy, self.dr = decompose_cumulative(self.frame_transforms)
             if not (len(self.dx) == n_frames and len(self.dy) == n_frames and len(self.dr) == n_frames):
                 raise ValueError("Cumulative path length mismatch.")
             print("Decomposed cumulative paths.")
@@ -106,7 +99,6 @@ class StabilizationWorker(QRunnable):
                 # This calculates N correction transforms (one for each frame including the first)
                 self.optimal_correction_transforms = self.calculate_gaussian_correction()
             else:
-                # Implement other methods or fallback (e.g., identity transforms)
                 self.optimal_correction_transforms = [np.eye(3) for _ in range(n_frames)]
                 # If no smoothing, smoothed path is the same as raw path
                 self.smoothed_dx, self.smoothed_dy, self.smoothed_dr = self.dx, self.dy, self.dr
@@ -135,7 +127,7 @@ class StabilizationWorker(QRunnable):
         except Exception as e:
             print(f"Error during stabilization: {e}")
             import traceback
-            traceback.print_exc()  # Print detailed traceback
+            traceback.print_exc()
             self.stabilization_signals.error.emit(f"Error: {e}")
         finally:
             print("Stabilization finished signal.")
@@ -146,7 +138,7 @@ class StabilizationWorker(QRunnable):
         if not self.dx or not self.dy or not self.dr:
             raise ValueError("Raw cumulative paths (dx, dy, dr) not calculated yet.")
 
-        n_frames = len(self.dx)  # Should be N
+        n_frames = len(self.dx)
 
         # Smooth the cumulative paths (length N)
         self.smoothed_dx = gaussian_filter1d(self.dx, sigma=self.sigma).tolist()
@@ -168,12 +160,12 @@ class StabilizationWorker(QRunnable):
             tx = diff_dx[i]
             ty = diff_dy[i]
 
-            # Homography matrix: [[cos(r), -sin(r), tx], [sin(r), cos(r), ty], [0, 0, 1]]
+            # Affine matrix: [[cos(r), -sin(r), tx], [sin(r), cos(r), ty], [0, 0, 1]]
             transform = np.array([
                 [cos_r, -sin_r, tx],
                 [sin_r, cos_r, ty],
                 [0, 0, 1]
-            ], dtype=np.float32)  # Ensure float type
+            ], dtype=np.float32)
             correction_transforms.append(transform)
 
         return correction_transforms
@@ -199,7 +191,7 @@ class StabilizationWorker(QRunnable):
                                                 borderMode=cv.BORDER_CONSTANT)  # Add border handling
                 stabilized_output_frames.append(stabilized)
 
-                # Emit progress within the loop if desired (e.g., every 10 frames)
+                # Emit progress
                 if (i + 1) % 10 == 0:
                     percent = 80 + int(((i + 1) / n_frames) * 20)  # Scale 80-100%
                     self.stabilization_signals.progress.emit(f"Warping frame {i + 1}/{n_frames}", percent)
@@ -211,7 +203,7 @@ class StabilizationWorker(QRunnable):
 
         return stabilized_output_frames
 
-    def get_inter_frame_transforms(self):
+    def get_frame_transforms(self):
         """Calculates the transform from frame i to frame i+1."""
         # Params for ShiTomasi corner detection
         feature_params = dict(maxCorners=200, qualityLevel=0.1, minDistance=30, blockSize=3)
@@ -219,19 +211,17 @@ class StabilizationWorker(QRunnable):
         lk_params = dict(winSize=(20, 20), maxLevel=3,
                          criteria=(cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03))
 
-        inter_frame_transforms = []
+        frame_transforms = []
 
         if not self.frames: return []
 
         old_gray = cv.cvtColor(self.frames[0], cv.COLOR_BGR2GRAY)
-        # Optional: GaussianBlur
-        # old_gray = cv.GaussianBlur(old_gray, (5, 5), 0) 
+
 
         n_frames = len(self.frames)
 
         for i in range(n_frames - 1):  # Iterate N-1 times for N frames
             new_gray = cv.cvtColor(self.frames[i + 1], cv.COLOR_BGR2GRAY)
-            # new_gray = cv.GaussianBlur(new_gray, (5, 5), 0)
 
             # --- Feature Tracking ---
             # Find features in the *previous* frame
@@ -239,8 +229,7 @@ class StabilizationWorker(QRunnable):
 
             if p0 is None or len(p0) < 10:  # Need sufficient points
                 print(f"Warning: Not enough features found at frame {i}. Using identity transform.")
-                # Append identity or previous transform? Identity is safer default.
-                inter_frame_transforms.append(np.eye(3, dtype=np.float32))
+                frame_transforms.append(np.eye(3, dtype=np.float32))
                 old_gray = new_gray.copy()
                 continue  # Skip to next frame pair
 
@@ -256,15 +245,14 @@ class StabilizationWorker(QRunnable):
 
             # --- Transform Estimation ---
             current_transform = None
-            if len(good_new) >= 4 and len(good_old) >= 4:  # Need at least 4 points for affine/homography
+            if len(good_new) >= 4 and len(good_old) >= 4:
                 try:
                     # Use estimateAffine2D as before
-                    # RANSAC helps with outliers
                     affine_matrix, mask = cv.estimateAffinePartial2D(good_old, good_new, method=cv.RANSAC,
                                                                      ransacReprojThreshold=5.0)
 
                     if affine_matrix is not None:
-                        # Convert 2x3 affine to 3x3 homography matrix
+                        # Convert 2x3 affine to 3x3 affine matrix
                         current_transform = np.vstack([affine_matrix, [0, 0, 1]])
                     else:
                         print(f"Warning: estimateAffinePartial2D failed at frame {i}. Using identity.")
@@ -278,13 +266,13 @@ class StabilizationWorker(QRunnable):
                     f"Warning: Not enough good points ({len(good_new)}) found for transform estimation at frame {i}. Using identity.")
                 current_transform = np.eye(3, dtype=np.float32)
 
-            inter_frame_transforms.append(current_transform.astype(np.float32))  # Ensure float type
+            frame_transforms.append(current_transform.astype(np.float32))  # Ensure float type
 
             # Update old frame and features for next iteration
             old_gray = new_gray.copy()
 
             # --- Progress Update ---
-            percent = 10 + int(((i + 1) / (n_frames - 1)) * 30)  # Scale 10-40% range
+            percent = 10 + int(((i + 1)     / (n_frames - 1)) * 30)
             self.stabilization_signals.progress.emit(f"Tracking frame {i + 1}/{n_frames - 1}", percent)
 
-        return inter_frame_transforms
+        return frame_transforms

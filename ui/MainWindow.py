@@ -1,24 +1,20 @@
-
-import sys
-from PyQt5.QtCore import Qt, QThread, QThreadPool, pyqtSlot
-from PyQt5.QtWidgets import (QVBoxLayout, QFrame, QHBoxLayout, QSlider,
+from PyQt5.QtCore import Qt, QThreadPool, pyqtSlot
+import cv2 as cv
+from PyQt5.QtCore import Qt, QThreadPool, pyqtSlot
+from PyQt5.QtWidgets import (QVBoxLayout, QHBoxLayout, QSlider,
                              QPushButton, QMainWindow, QWidget, QFileDialog,
-                             QProgressBar, QLabel, QApplication)  # Added QApplication for running if needed
-import matplotlib.pyplot as plt  # Added for optional plotting
+                             QProgressBar, QLabel)
 
-# Assuming Utils.py and VideoWidget.py are in the same directory or accessible
 import Utils
 from VideoWidget import VideoWidget
-# Assuming StabilizationWorker.py is structured correctly and accessible
 from ui.StabilizationWorker import StabilizationWorker
-import cv2 as cv
-import numpy as np
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Video Stabilizer")
+
         # Adjusted minimum size slightly for better layout with progress/error
         self.setMinimumSize(1080, 950)
         self.setGeometry(100, 100, 1600, 1000)  # Example position/size
@@ -30,7 +26,7 @@ class MainWindow(QMainWindow):
         self.worker = None  # Reference to the stabilization worker
         self.thread_pool = QThreadPool()  # Thread pool for the worker
 
-        # Stabilization results data (optional, for debugging/plotting)
+        # Stabilization results data
         self.dx, self.dy, self.dr = None, None, None
         self.smoothed_dx, self.smoothed_dy, self.smoothed_dr = None, None, None
         self.correction_transforms = None
@@ -143,16 +139,15 @@ class MainWindow(QMainWindow):
         self.play_button.clicked.connect(self.play_video)
         self.stop_button.clicked.connect(self.stop_video)
 
-        # Connect frame changes FROM video widget TO slider update
+        # Connect frame changes from, video widget to slider update
         self.before_video.frameChanged.connect(self.update_slider_from_video)
-        # Connect slider value changes TO video frame update
+        # Connect slider value changes to video frame update
         self.slider.valueChanged.connect(self.update_video_from_slider)
 
-        # --- Apply Styles ---
         self.apply_styles()
 
     def apply_styles(self):
-        """Applies basic CSS styling to widgets."""
+        """Applies styling to widgets."""
         button_style = ("QPushButton {"
                         "  background-color:#C67D58;"
                         "  color:#F5D6B1;"
@@ -163,7 +158,7 @@ class MainWindow(QMainWindow):
                         "QPushButton:hover { background-color: #d78e6a; }"  # Hover effect
                         "QPushButton:pressed { background-color: #b56d4e; }"  # Pressed effect
                         "QPushButton:disabled { background-color: #cccccc; color: #666666; border: 1px solid #aaaaaa; }"
-                        # Disabled style
+
                         )
 
         self.load_button.setStyleSheet(button_style)
@@ -180,7 +175,6 @@ class MainWindow(QMainWindow):
         self.before_label.setStyleSheet(label_style)
         self.after_label.setStyleSheet(label_style)
         self.progress_label.setStyleSheet("QLabel { color: #333333; }")  # Progress text color
-        # Error label style is set directly where it's created
 
     # --- Action Methods ---
 
@@ -198,7 +192,7 @@ class MainWindow(QMainWindow):
             try:
                 self.hide_error()  # Hide previous errors on new load attempt
                 print(f"Loading video from: {selected_file}")
-                # Load frames using the utility function
+                # Load frames
                 loaded_frames = Utils.load_video(selected_file)
 
                 if not loaded_frames:
@@ -270,8 +264,8 @@ class MainWindow(QMainWindow):
         self.save_button.setEnabled(False)
         self.stabilize_button.setEnabled(False)  # Disable during processing
         self.load_button.setEnabled(False)  # Disable during processing
-        self.play_button.setEnabled(False)  # Disable playback during processing
-        self.stop_button.setEnabled(False)
+        # self.play_button.setEnabled(False)  # Disable playback during processing
+        # self.stop_button.setEnabled(False)
         self.hide_error()
 
         # Show and reset progress bar/label
@@ -281,11 +275,10 @@ class MainWindow(QMainWindow):
         self.progress_label.setVisible(True)
 
         # --- Prepare and start worker ---
-        # TODO: Potentially get sigma from a UI element later
-        sigma_value = 50  # Example smoothing factor
+        sigma_value = 10
         self.worker = StabilizationWorker(self.frames_before, sigma=sigma_value)
 
-        # Connect signals from worker to slots in this MainWindow
+        # Connect signals
         self.worker.stabilization_signals.progress.connect(self.update_progress)
         self.worker.stabilization_signals.result.connect(self.stabilization_completed)
         self.worker.stabilization_signals.finished.connect(self.stabilization_finished)
@@ -318,7 +311,7 @@ class MainWindow(QMainWindow):
                 height, width, _ = self.frames_after[0].shape
                 # Use mp4v codec for MP4 files, check compatibility if saving other formats
                 fourcc = cv.VideoWriter_fourcc(*'mp4v')
-                # TODO: Get FPS from original video if possible, default to 30
+
                 fps = 30
                 out = cv.VideoWriter(selected_file, fourcc, fps, (width, height))
 
@@ -334,7 +327,7 @@ class MainWindow(QMainWindow):
 
                 out.release()
                 print(f"Video saved successfully to {selected_file}")
-                # Optionally show a success message in the status bar or a dialog
+
 
             except Exception as e:
                 error_msg = f"Error saving video: {e}"
@@ -382,14 +375,12 @@ class MainWindow(QMainWindow):
         self.save_button.setEnabled(True)  # Enable save now
         print(f"Loaded {len(self.frames_after)} stabilized frames into 'After' widget.")
 
-        # Optional: Automatically plot motion data after completion
-        # self.plot_motion() 
+
 
     @pyqtSlot()
     def stabilization_finished(self):
         """Handles the 'finished' signal from the worker."""
         print("Stabilization worker thread has finished.")
-        # This runs *after* result or error signal is processed
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
 
@@ -411,7 +402,7 @@ class MainWindow(QMainWindow):
         self.frames_after = None
         self.after_video.set_frames(None)
         self.save_button.setEnabled(False)
-        # Note: stabilization_finished will still run afterwards to re-enable buttons etc.
+
 
     @pyqtSlot(str, int)
     def update_progress(self, message, value):
@@ -470,41 +461,3 @@ class MainWindow(QMainWindow):
         """Hides the error message label."""
         self.error_label.setText("")
         self.error_label.setVisible(False)
-
-    def plot_motion(self):
-        """Optional: Plots the original vs smoothed motion paths."""
-        if self.dx and self.smoothed_dx:
-            plt.figure("X Motion")
-            plt.plot(self.dx, label='Original Cumulative dx')
-            plt.plot(self.smoothed_dx, label='Smoothed Cumulative dx')
-            plt.xlabel("Frame Index")
-            plt.ylabel("Offset (pixels)")
-            plt.title("X-Axis Motion")
-            plt.legend()
-            plt.grid(True)
-            plt.show(block=False)  # Use block=False so it doesn't halt the Qt app
-
-        if self.dy and self.smoothed_dy:
-            plt.figure("Y Motion")
-            plt.plot(self.dy, label='Original Cumulative dy')
-            plt.plot(self.smoothed_dy, label='Smoothed Cumulative dy')
-            plt.xlabel("Frame Index")
-            plt.ylabel("Offset (pixels)")
-            plt.title("Y-Axis Motion")
-            plt.legend()
-            plt.grid(True)
-            plt.show(block=False)
-
-        if self.dr and self.smoothed_dr:
-            plt.figure("Rotational Motion")
-            # Convert radians to degrees for easier interpretation
-            dr_deg = np.degrees(self.dr)
-            smoothed_dr_deg = np.degrees(self.smoothed_dr)
-            plt.plot(dr_deg, label='Original Cumulative Rotation (deg)')
-            plt.plot(smoothed_dr_deg, label='Smoothed Cumulative Rotation (deg)')
-            plt.xlabel("Frame Index")
-            plt.ylabel("Rotation (degrees)")
-            plt.title("Rotational Motion")
-            plt.legend()
-            plt.grid(True)
-            plt.show(block=False)
